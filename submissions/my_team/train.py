@@ -6,7 +6,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
-# --- Dynamic Path Resolution (From main branch) ---
+# --- Dynamic Path Resolution ---
 # Ensures that the project root is in the system path so we can import local modules
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
@@ -23,7 +23,7 @@ IMAGE_SIZE = 224
 BATCH_SIZE = 32
 EPOCHS = 10
 LEARNING_RATE = 1e-3
-HIDDEN_DIM = 60 # Required for the new model architecture defined by the team
+HIDDEN_DIM = 60 
 
 # ImageNet standard normalization values required by the evaluator
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
@@ -43,7 +43,7 @@ def get_train_dataloader(data_root: Path, image_size: int, batch_size: int) -> D
         transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
     ])
     
-    # Using the team's standardized dataset class for consistency
+    # Using the standardized dataset class for consistency
     train_dataset = ImageNetSubset(data_root, split="training_set", transform=transform_pipeline)
     print(f"Loaded {len(train_dataset)} training images.")
     
