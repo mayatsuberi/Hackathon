@@ -4,39 +4,32 @@ import torch.nn as nn
 
 class ModelArchitecture(nn.Module):
     """
-    Student model architecture.
-
-    Students should define their model here.
-
-    Required behavior:
-        input:  torch.Tensor of shape [batch_size, 3, height, width]
-        output: torch.Tensor of shape [batch_size, 20]
+    FFT-based classifier: grayscale 224x224 magnitude spectrum -> 60 -> 60 -> 20.
     """
 
-    def __init__(self, num_classes: int = 20):
+    def __init__(self, num_classes: int = 20, hidden_dim: int = 60, image_size: int = 224):
         super().__init__()
+        self.image_size = image_size
+        input_dim = image_size * image_size
 
-        # TODO: write your model architecture here
-        # Example:
-        #   define layers
-        #   define feature extractor
-        #   define classifier
-        #   define any other modules needed
+        self.classifier = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, num_classes),
+        )
 
-        raise NotImplementedError("TODO: implement ModelArchitecture.__init__")
+    def _to_grayscale(self, x: torch.Tensor) -> torch.Tensor:
+        r, g, b = x[:, 0], x[:, 1], x[:, 2]
+        return 0.299 * r + 0.587 * g + 0.114 * b
+
+    def _fft_features(self, x: torch.Tensor) -> torch.Tensor:
+        gray = self._to_grayscale(x)
+        spectrum = torch.fft.fft2(gray)
+        magnitude = torch.abs(spectrum)
+        return magnitude.flatten(start_dim=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass.
-
-        Args:
-            x: batch of images
-
-        Returns:
-            logits for 20 classes
-        """
-
-        # TODO: write the forward pass here
-        # The returned tensor should have shape [batch_size, 20]
-
-        raise NotImplementedError("TODO: implement ModelArchitecture.forward")
+        features = self._fft_features(x)
+        return self.classifier(features)
