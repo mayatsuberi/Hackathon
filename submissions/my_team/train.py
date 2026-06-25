@@ -1,6 +1,5 @@
 import sys
 from pathlib import Path
-
 import joblib
 import torch
 import torch.nn as nn
@@ -26,7 +25,7 @@ OUTPUT_WEIGHTS    = Path(__file__).resolve().parent / "weights.joblib"
 
 IMAGE_SIZE     = 224
 BATCH_SIZE     = 64
-EPOCHS         = 10
+EPOCHS         = 30
 LEARNING_RATE  = 1e-3
 HIDDEN_DIM     = 128  # updated from 60
 WEIGHT_DECAY   = 1e-4

@@ -46,18 +46,6 @@ class ModelArchitecture(nn.Module):
             nn.Linear(hidden_dim, num_classes),
         )
 
-    def _to_grayscale(self, x: torch.Tensor) -> torch.Tensor:
-        r = x[:, 0:1]
-        g = x[:, 1:2]
-        b = x[:, 2:3]
-        return 0.299 * r + 0.587 * g + 0.114 * b
-
-
-    def _fft_features(self, x: torch.Tensor) -> torch.Tensor:
-        gray = self._to_grayscale(x)
-        spectrum = torch.fft.fft2(gray)
-        magnitude = torch.abs(spectrum)
-        return magnitude.flatten(start_dim=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.cnn_layers(x)
