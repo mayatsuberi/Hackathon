@@ -13,7 +13,7 @@ class ModelArchitecture(nn.Module):
 
         self.cnn_layers = nn.Sequential(
             nn.Conv2d(
-                in_channels=1,
+                in_channels=3,
                 out_channels=16,
                 kernel_size=3,
                 padding=1
@@ -23,7 +23,7 @@ class ModelArchitecture(nn.Module):
             nn.MaxPool2d(kernel_size=2),
 
             nn.Conv2d(
-                in_channels=16,
+                in_channels=36,
                 out_channels=32,
                 kernel_size=3,
                 padding=1
