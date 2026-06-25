@@ -1,61 +1,30 @@
 from pathlib import Path
-
 import joblib
 import torch
 import torch.nn as nn
-
 from torch.utils.data import DataLoader
 from torchvision import transforms
-import torchvision.transforms.functional as F
 from torchvision.datasets import ImageFolder
 
-from base_model import ImageNetSubset
 from model import ModelArchitecture
 
-
+# --- Configuration & Hyperparameters ---
 DATA_ROOT = Path("../../dataset")
-OUTPUT = Path("weights.joblib")
+OUTPUT_WEIGHTS = Path("weights.joblib")
 
 IMAGE_SIZE = 224
 BATCH_SIZE = 32
+EPOCHS = 10
+LEARNING_RATE = 0.001
 
 
-class PadToSquare:
+def get_train_dataloader(data_dir: Path, image_size: int, batch_size: int) -> DataLoader:
     """
-    A custom PyTorch Transform class.
-    It pads the image with a specified fill value to make it a perfect square,
-    preventing distortion during the resizing process.
+    Creates and returns the training dataloader with the robust transform pipeline.
     """
-    def __init__(self, fill=0):
-        # Fill value for the padded area (0 = black)
-        self.fill = fill
-
-    def __call__(self, img):
-        # img is expected to be a PIL Image
-        w, h = img.size
-        max_wh = max(w, h)
-        
-        # Calculate the required padding for each side
-        hp = int((max_wh - w) / 2)
-        vp = int((max_wh - h) / 2)
-        
-        # Padding format: (left, top, right, bottom)
-        padding = (hp, vp, max_wh - w - hp, max_wh - h - vp)
-        
-        return F.pad(img, padding, self.fill, 'constant')
-
-
-def main():
-    """
-    Full training pipeline.
-
-    This script must create weights.joblib.
-    """
-
-    # 1. Define the transform pipeline using the custom padding class
     transform_pipeline = transforms.Compose([
-        PadToSquare(fill=0),
-        transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
+        transforms.RandomResizedCrop(image_size),
+        transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         transforms.Normalize(
             mean=[0.485, 0.456, 0.406],
@@ -63,23 +32,76 @@ def main():
         )
     ])
     
-    # 2. Load the training dataset
-    # Navigate to the raw images directory within the dataset folder
-    dataset_path = DATA_ROOT / "train_set" 
+    train_dataset = ImageFolder(root=str(data_dir), transform=transform_pipeline)
+    print(f"Loaded {len(train_dataset)} training images.")
     
-    train_dataset = ImageFolder(root=str(dataset_path), transform=transform_pipeline)
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    return DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
-    print(f"Loaded {len(train_dataset)} images.")
 
-    # TODO: create your model
+def train_one_epoch(model: nn.Module, dataloader: DataLoader, criterion: nn.Module, 
+                    optimizer: torch.optim.Optimizer, device: torch.device) -> tuple[float, float]:
+    """
+    Handles a single epoch of training.
+    Returns the average loss and accuracy for this epoch.
+    """
+    model.train()
+    running_loss = 0.0
+    correct_preds = 0
+    total_preds = 0
+    
+    for images, labels in dataloader:
+        images, labels = images.to(device), labels.to(device)
+        
+        # Zero gradients
+        optimizer.zero_grad()
+        
+        # Forward pass
+        outputs = model(images)
+        loss = criterion(outputs, labels)
+        
+        # Backward pass and optimize
+        loss.backward()
+        optimizer.step()
+        
+        # Calculate statistics
+        running_loss += loss.item()
+        _, predicted = torch.max(outputs.data, 1)
+        total_preds += labels.size(0)
+        correct_preds += (predicted == labels).sum().item()
+        
+    epoch_loss = running_loss / len(dataloader)
+    epoch_acc = 100 * correct_preds / total_preds
+    
+    return epoch_loss, epoch_acc
 
-    # Save trained model weights to weights.joblib
-    # Important: Move the model to CPU before saving to ensure compatibility 
-    # during the automated evaluation process.
+
+def main():
+    """
+    Main orchestration function for the training pipeline.
+    """
+    # 1. Setup Device
+    device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+    print(f"Starting training pipeline on device: {device}")
+
+    # 2. Data Preparation
+    dataset_path = DATA_ROOT / "train_set"
+    train_loader = get_train_dataloader(dataset_path, IMAGE_SIZE, BATCH_SIZE)
+
+    # 3. Model, Loss, and Optimizer Initialization
+    model = ModelArchitecture().to(device)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
+
+    # 4. Training Loop
+    print("Starting training...")
+    for epoch in range(EPOCHS):
+        epoch_loss, epoch_acc = train_one_epoch(model, train_loader, criterion, optimizer, device)
+        print(f"Epoch [{epoch+1}/{EPOCHS}] | Loss: {epoch_loss:.4f} | Accuracy: {epoch_acc:.2f}%")
+
+    # 5. Save Artifacts
     state_dict = model.cpu().state_dict()
-    joblib.dump(state_dict, "weights.joblib")
-    print("Saved trained weights.joblib")
+    joblib.dump(state_dict, OUTPUT_WEIGHTS)
+    print(f"Saved trained weights to {OUTPUT_WEIGHTS}")
 
 
 if __name__ == "__main__":
