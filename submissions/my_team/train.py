@@ -1,11 +1,10 @@
 import sys
 from pathlib import Path
+
 import joblib
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
-from torchvision import transforms
-from augmentations import get_robust_transforms
+from torch.utils.data import DataLoader, ConcatDataset, random_split
 
 # --- Dynamic Path Resolution ---
 # Ensures that the project root is in the system path so we can import local modules
@@ -13,79 +12,140 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+# All local imports AFTER sys.path is set up
 from model import ModelArchitecture
 from base_model import ImageNetSubset
+from augmentations import get_robust_transforms
+from dataset import AugmentationDataset
 
 # --- Configuration & Hyperparameters ---
-DATA_ROOT = PROJECT_ROOT / "dataset"
-OUTPUT_WEIGHTS = Path(__file__).resolve().parent / "weights.joblib"
+DATA_ROOT         = PROJECT_ROOT / "dataset"
+AUG_COLOR_ROOT    = DATA_ROOT / "augmentations" / "color_jitter"
+AUG_ROTATION_ROOT = DATA_ROOT / "augmentations" / "random_rotation"
+OUTPUT_WEIGHTS    = Path(__file__).resolve().parent / "weights.joblib"
 
-IMAGE_SIZE = 224
-BATCH_SIZE = 32
-EPOCHS = 10
+IMAGE_SIZE    = 224
+BATCH_SIZE    = 32
+EPOCHS        = 10
 LEARNING_RATE = 1e-3
-HIDDEN_DIM = 60 
+HIDDEN_DIM    = 128  # updated from 60
 
 # ImageNet standard normalization values required by the evaluator
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
-IMAGENET_STD = (0.229, 0.224, 0.225)
+IMAGENET_STD  = (0.229, 0.224, 0.225)
 
 
-def get_train_dataloader(data_root: Path, image_size: int, batch_size: int) -> DataLoader:
+class TransformDataset(torch.utils.data.Dataset):
+    """Applies a transform to a subset — needed for separate train/val transforms."""
+    def __init__(self, subset, transform):
+        self.subset    = subset
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.subset)
+
+    def __getitem__(self, idx):
+        image, label = self.subset[idx]
+        if self.transform:
+            image = self.transform(image)
+        return image, label
+
+
+def get_val_transform(image_size: int):
+    """Clean preprocessing for validation — no augmentations."""
+    from torchvision import transforms
+    return transforms.Compose([
+        transforms.Resize(256),
+        transforms.CenterCrop(image_size),
+        transforms.ToTensor(),
+        transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
+    ])
+
+
+def get_dataloaders(data_root: Path, image_size: int, batch_size: int):
     """
-    Creates and returns the training dataloader.
-    Uses the robust transform pipeline from augmentations.py to prevent 
-    overfitting to backgrounds and to match the evaluation crop size.
+    Creates and returns train and validation dataloaders.
+    Combines clean training images with instructor augmentations.
+    Applies robust transforms to training, clean transforms to validation.
     """
-    transform_pipeline = get_robust_transforms(image_size)
-    
-    train_dataset = ImageNetSubset(data_root, split="training_set", transform=transform_pipeline)
-    print(f"Loaded {len(train_dataset)} training images.")
-    
-    return DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    train_transform = get_robust_transforms(image_size)
+    val_transform   = get_val_transform(image_size)
+
+    # Load clean dataset without transform
+    clean_dataset = ImageNetSubset(data_root, split="training_set", transform=None)
+
+    # Random 80/20 split — different every run, no fixed seed
+    train_size = int(0.8 * len(clean_dataset))
+    val_size   = len(clean_dataset) - train_size
+    train_subset, val_subset = random_split(clean_dataset, [train_size, val_size])
+
+    # Apply transforms per split
+    train_clean = TransformDataset(train_subset, train_transform)
+    val_dataset = TransformDataset(val_subset,   val_transform)
+
+    # Load instructor augmented datasets
+    aug_color    = AugmentationDataset(AUG_COLOR_ROOT,    transform=train_transform)
+    aug_rotation = AugmentationDataset(AUG_ROTATION_ROOT, transform=train_transform)
+
+    # Combine all training data
+    train_dataset = ConcatDataset([train_clean, aug_color, aug_rotation])
+
+    print(f"Clean train:     {len(train_clean)}")
+    print(f"Color jitter:    {len(aug_color)}")
+    print(f"Random rotation: {len(aug_rotation)}")
+    print(f"Total train:     {len(train_dataset)}")
+    print(f"Validation:      {len(val_dataset)}")
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader   = DataLoader(val_dataset,   batch_size=batch_size, shuffle=False)
+
+    return train_loader, val_loader
 
 
-def train_one_epoch(model: nn.Module, dataloader: DataLoader, criterion: nn.Module, 
-                    optimizer: torch.optim.Optimizer, device: torch.device) -> tuple[float, float]:
+def train_one_epoch(model, dataloader, criterion, optimizer, device):
     """
     Handles a single epoch of training.
-    Iterates over the dataloader, performs forward and backward passes,
-    updates model weights, and calculates epoch statistics.
-    
-    Returns:
-        A tuple containing the average loss and accuracy for this epoch.
+    Returns average loss and accuracy for this epoch.
     """
     model.train()
-    running_loss = 0.0
+    running_loss  = 0.0
     correct_preds = 0
-    total_preds = 0
-    
+    total_preds   = 0
+
     for images, labels in dataloader:
-        # Move data to the active device (GPU/MPS/CPU)
         images, labels = images.to(device), labels.to(device)
-        
-        # Zero the parameter gradients
+
         optimizer.zero_grad()
-        
-        # Forward pass
         outputs = model(images)
-        loss = criterion(outputs, labels)
-        
-        # Backward pass and optimize
+        loss    = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
-        
-        # Calculate batch statistics
-        running_loss += loss.item() * images.size(0)
-        _, predicted = torch.max(outputs.data, 1)
-        total_preds += labels.size(0)
+
+        running_loss  += loss.item() * images.size(0)
+        _, predicted   = torch.max(outputs.data, 1)
+        total_preds   += labels.size(0)
         correct_preds += (predicted == labels).sum().item()
-        
-    # Calculate epoch averages
+
     epoch_loss = running_loss / total_preds
-    epoch_acc = 100 * correct_preds / total_preds
-    
+    epoch_acc  = 100 * correct_preds / total_preds
+
     return epoch_loss, epoch_acc
+
+
+def validate(model, dataloader, device):
+    """Runs validation and returns accuracy."""
+    model.eval()
+    correct = 0
+    total   = 0
+
+    with torch.no_grad():
+        for images, labels in dataloader:
+            images, labels = images.to(device), labels.to(device)
+            preds    = model(images).argmax(dim=1)
+            correct += (preds == labels).sum().item()
+            total   += labels.size(0)
+
+    return 100 * correct / total
 
 
 def main():
@@ -95,29 +155,33 @@ def main():
     Finally, saves the model weights to the required joblib format.
     """
     # 1. Setup Device (Supports NVIDIA CUDA, Apple MPS, and standard CPU)
-    device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
-    print(f"Starting training pipeline on device: {device}")
+    device = torch.device(
+        "cuda" if torch.cuda.is_available() else
+        "mps"  if torch.backends.mps.is_available() else
+        "cpu"
+    )
+    print(f"Starting training pipeline on device: {device}\n")
 
     # 2. Data Preparation
-    train_loader = get_train_dataloader(DATA_ROOT, IMAGE_SIZE, BATCH_SIZE)
+    train_loader, val_loader = get_dataloaders(DATA_ROOT, IMAGE_SIZE, BATCH_SIZE)
 
     # 3. Model, Loss, and Optimizer Initialization
-    # Initializing the model with the dynamic hidden_dim parameter required by main
-    model = ModelArchitecture(num_classes=20, hidden_dim=HIDDEN_DIM, image_size=IMAGE_SIZE).to(device)
+    model     = ModelArchitecture(num_classes=20, hidden_dim=HIDDEN_DIM, image_size=IMAGE_SIZE).to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
     # 4. Training Loop
-    print("Starting training...")
+    print("\nStarting training...")
     for epoch in range(EPOCHS):
         epoch_loss, epoch_acc = train_one_epoch(model, train_loader, criterion, optimizer, device)
-        print(f"Epoch [{epoch+1}/{EPOCHS}] | Loss: {epoch_loss:.4f} | Accuracy: {epoch_acc:.2f}%")
+        val_acc = validate(model, val_loader, device)
+        print(f"Epoch [{epoch+1}/{EPOCHS}] | Loss: {epoch_loss:.4f} | Train Acc: {epoch_acc:.2f}% | Val Acc: {val_acc:.2f}%")
 
     # 5. Save Artifacts
-    # Move model back to CPU before saving to ensure compatibility with the automated grader
+    # Move model back to CPU before saving for hardware-independent loading
     state_dict = model.cpu().state_dict()
     joblib.dump(state_dict, OUTPUT_WEIGHTS)
-    print(f"Saved trained weights to {OUTPUT_WEIGHTS}")
+    print(f"\nSaved trained weights to {OUTPUT_WEIGHTS}")
 
 
 if __name__ == "__main__":
