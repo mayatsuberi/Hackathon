@@ -4,39 +4,71 @@ import torch.nn as nn
 
 class ModelArchitecture(nn.Module):
     """
-    Student model architecture.
-
-    Students should define their model here.
-
-    Required behavior:
-        input:  torch.Tensor of shape [batch_size, 3, height, width]
-        output: torch.Tensor of shape [batch_size, 20]
+    FFT-based classifier: grayscale 224x224 magnitude spectrum -> 60 -> 60 -> 20.
     """
 
-    def __init__(self, num_classes: int = 20):
+    def __init__(self, num_classes: int = 20, hidden_dim: int = 60, image_size: int = 224):
         super().__init__()
+        self.image_size = image_size
 
-        # TODO: write your model architecture here
-        # Example:
-        #   define layers
-        #   define feature extractor
-        #   define classifier
-        #   define any other modules needed
+        self.cnn_layers = nn.Sequential(
+            nn.Conv2d(
+                in_channels=1,
+                out_channels=16,
+                kernel_size=3,
+                padding=1
+            ),
+            nn.BatchNorm2d(16),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2),
 
-        raise NotImplementedError("TODO: implement ModelArchitecture.__init__")
+            nn.Conv2d(
+                in_channels=16,
+                out_channels=32,
+                kernel_size=3,
+                padding=1
+            ),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2),
+
+            nn.Conv2d(
+                in_channels=32,
+                out_channels=64,
+                kernel_size=3,
+                padding=1
+            ),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2),
+
+            nn.AdaptiveAvgPool2d((1, 1)),
+        )
+
+        self.classifier = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(64, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, num_classes),
+        )
+
+
+
+
+
+    def _to_grayscale(self, x: torch.Tensor) -> torch.Tensor:
+        r, g, b = x[:, 0], x[:, 1], x[:, 2]
+        return 0.299 * r + 0.587 * g + 0.114 * b
+
+    def _fft_features(self, x: torch.Tensor) -> torch.Tensor:
+        gray = self._to_grayscale(x)
+        spectrum = torch.fft.fft2(gray)
+        magnitude = torch.abs(spectrum)
+        return magnitude.flatten(start_dim=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass.
-
-        Args:
-            x: batch of images
-
-        Returns:
-            logits for 20 classes
-        """
-
-        # TODO: write the forward pass here
-        # The returned tensor should have shape [batch_size, 20]
-
-        raise NotImplementedError("TODO: implement ModelArchitecture.forward")
+        x = self.cnn_layers(x)
+        logits = self.classifier(x)
+        return logits
