@@ -1,8 +1,8 @@
 """
-Move a random subset of images from dataset/data to dataset/first_part.
+Move a random subset of images from dataset/data to dataset/training_set.
 
 The same number of images is selected from each subfolder, and each image
-is moved into the matching subfolder under first_part.
+is moved into the matching subfolder under training_set.
 """
 
 import argparse
@@ -62,7 +62,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Randomly move the same number of images from each subfolder "
-            "in dataset/data to the matching subfolder in dataset/first_part."
+            "in dataset/data to the matching subfolder in dataset/training_set."
         )
     )
     parser.add_argument(
@@ -73,14 +73,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--source",
         type=Path,
-        default=Path(__file__).resolve().parent / "data",
+        default=Path(__file__).resolve().parent / "dataset" / "data",
         help="Source dataset root (default: dataset/data)",
     )
     parser.add_argument(
         "--target",
         type=Path,
-        default=Path(__file__).resolve().parent / "first_part",
-        help="Target dataset root (default: dataset/first_part)",
+        default=Path(__file__).resolve().parent / "dataset" / "training_set",
+        help="Target dataset root (default: dataset/training_set)",
     )
     parser.add_argument(
         "--seed",
