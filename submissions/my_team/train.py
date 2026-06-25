@@ -38,7 +38,7 @@ def build_transform():
 
 def main() -> None:
     transform = build_transform()
-    train_dataset = ImageNetSubset(DATA_ROOT, split="data", transform=transform)
+    train_dataset = ImageNetSubset(DATA_ROOT, split="training_set", transform=transform)
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
