@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from torchvision import transforms
+from augmentations import get_robust_transforms
 
 # --- Dynamic Path Resolution ---
 # Ensures that the project root is in the system path so we can import local modules
@@ -33,17 +34,11 @@ IMAGENET_STD = (0.229, 0.224, 0.225)
 def get_train_dataloader(data_root: Path, image_size: int, batch_size: int) -> DataLoader:
     """
     Creates and returns the training dataloader.
-    Includes a robust transform pipeline (RandomResizedCrop and RandomHorizontalFlip)
-    to prevent overfitting to backgrounds and to match the evaluation crop size.
+    Uses the robust transform pipeline from augmentations.py to prevent 
+    overfitting to backgrounds and to match the evaluation crop size.
     """
-    transform_pipeline = transforms.Compose([
-        transforms.RandomResizedCrop(image_size),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
-    ])
+    transform_pipeline = get_robust_transforms(image_size)
     
-    # Using the standardized dataset class for consistency
     train_dataset = ImageNetSubset(data_root, split="training_set", transform=transform_pipeline)
     print(f"Loaded {len(train_dataset)} training images.")
     
