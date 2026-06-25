@@ -44,6 +44,12 @@ def preprocess(image_path: Path):
     return transform(image).unsqueeze(0)
 
 
+def classify(image_path: Path, model: Model, labels: dict[str, str]) -> tuple[int, str]:
+    x = preprocess(image_path)
+    pred_idx = int(model.predict(x).item())
+    return pred_idx, labels[str(pred_idx)]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Classify one image with weights.joblib")
     parser.add_argument("image", type=Path, help="Path to a .jpg/.png image")
@@ -63,9 +69,8 @@ def main() -> None:
     model = Model()
     model.load(str(args.weights))
 
-    x = preprocess(args.image)
-    pred_idx = int(model.predict(x).item())
-    class_name = load_labels()[str(pred_idx)]
+    labels = load_labels()
+    pred_idx, class_name = classify(args.image, model, labels)
 
     print(f"Image:     {args.image}")
     print(f"Predicted: {pred_idx} ({class_name})")
