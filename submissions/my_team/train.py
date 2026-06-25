@@ -24,11 +24,14 @@ AUG_COLOR_ROOT    = DATA_ROOT / "augmentations" / "color_jitter"
 AUG_ROTATION_ROOT = DATA_ROOT / "augmentations" / "random_rotation"
 OUTPUT_WEIGHTS    = Path(__file__).resolve().parent / "weights.joblib"
 
-IMAGE_SIZE    = 224
-BATCH_SIZE    = 32
-EPOCHS        = 10
-LEARNING_RATE = 1e-3
-HIDDEN_DIM    = 128  # updated from 60
+IMAGE_SIZE     = 224
+BATCH_SIZE     = 64
+EPOCHS         = 10
+LEARNING_RATE  = 1e-3
+HIDDEN_DIM     = 128  # updated from 60
+WEIGHT_DECAY   = 1e-4
+DROPOUT        = 0.3
+LABEL_SMOOTHING = 0.1
 
 # ImageNet standard normalization values required by the evaluator
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
@@ -166,9 +169,9 @@ def main():
     train_loader, val_loader = get_dataloaders(DATA_ROOT, IMAGE_SIZE, BATCH_SIZE)
 
     # 3. Model, Loss, and Optimizer Initialization
-    model     = ModelArchitecture(num_classes=20, hidden_dim=HIDDEN_DIM, image_size=IMAGE_SIZE).to(device)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    model     = ModelArchitecture(num_classes=20, hidden_dim=HIDDEN_DIM, image_size=IMAGE_SIZE, dropout=DROPOUT).to(device)
+    criterion = nn.CrossEntropyLoss(label_smoothing=LABEL_SMOOTHING)
+    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
 
     # 4. Training Loop
     print("\nStarting training...")

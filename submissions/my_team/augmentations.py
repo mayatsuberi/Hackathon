@@ -21,19 +21,12 @@ def get_robust_transforms(image_size: int) -> transforms.Compose:
     IMAGENET_STD = (0.229, 0.224, 0.225)
 
     return transforms.Compose([
-        # --- Spatial Transformations ---
-        transforms.RandomResizedCrop(image_size),
-        transforms.RandomHorizontalFlip(),
-        
-        # --- Color & Texture Transformations ---
-        transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1),
-        transforms.RandomGrayscale(p=0.1),
-        transforms.GaussianBlur(kernel_size=3),
-        
-        # --- Tensor Conversion & Normalization ---
-        transforms.ToTensor(),
-        transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
-        
-        # --- Post-Tensor Transformations ---
-        transforms.RandomErasing(p=0.5)
-    ])
+    transforms.RandomResizedCrop(image_size),
+    transforms.RandomHorizontalFlip(),
+    transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1),
+    transforms.RandomApply([transforms.Grayscale(num_output_channels=3)], p=0.1),
+    transforms.GaussianBlur(kernel_size=3),
+    transforms.ToTensor(),
+    transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
+    transforms.RandomErasing(p=0.5)
+])
